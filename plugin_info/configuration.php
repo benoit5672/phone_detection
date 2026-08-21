@@ -41,8 +41,7 @@ function getBTControllers()
        </div>
     </div>
     <div class="form-group">
-        <label class="col-lg-4 control-label">{{Autoriser la mise a jour des fichiers des antennes automatiquement lors d'une mise a jour}} <sup><i class="fas fa-question-circle" title="{{Très pratique, mais attention si vos antennes ont des soucis au moment de la maj, alors il peut y avoir une roue crantée i
-nfinie et dans tous les cas la roue restera le temps de maj des antennes}}"></i></sup></label>
+        <label class="col-lg-4 control-label">{{Autoriser la mise a jour des fichiers des antennes automatiquement lors d'une mise a jour}} <sup><i class="fas fa-question-circle" title="{{Très pratique, mais attention si vos antennes ont des soucis au moment de la maj, alors il peut y avoir une roue crantée infinie et dans tous les cas la roue restera le temps de maj des antennes}}"></i></sup></label>
         <div class="col-lg-3">
            <input type="checkbox" class="configKey" data-l1key="allowUpdateAntennas" />
        </div>
@@ -111,7 +110,7 @@ nfinie et dans tous les cas la roue restera le temps de maj des antennes}}"></i>
         {{ Intervalle de mise à jour quand le téléphone est absent }} <sup><i class="fa fa-question-circle tooltips" title="{{C'est le temps en secondes entre 2 tentatives de ping du téléphone quand le téléphone est absent}}" style="font-size : 1em;color:grey;"></i></sup>
       </label>
       <div class="col-sm-1">
-        <input type="text" class="configKey form-control" data-l1key="interval" placeholder="15"/>
+        <input type="text" class="configKey form-control" data-l1key="interval" placeholder="20"/>
     </div>
     </fieldset>
     <fieldset>
@@ -129,7 +128,7 @@ nfinie et dans tous les cas la roue restera le temps de maj des antennes}}"></i>
         {{ Délai pour considérer le téléphone comme absent }} <sup><i class="fa fa-question-circle tooltips" title="{{C'est le temps en secondes après lequel le téléphone est considéré comme absent}}" style="font-size : 1em;color:grey;"></i></sup>
       </label>
       <div class="col-sm-1">
-        <input type="text" class="configKey form-control" data-l1key="absentThreshold" placeholder="180"/>
+        <input type="text" class="configKey form-control" data-l1key="absent_threshold" placeholder="300"/>
     </div>
     </div>
     <div class="form-group">
@@ -139,6 +138,37 @@ nfinie et dans tous les cas la roue restera le temps de maj des antennes}}"></i>
     </div>
     </div>
   </fieldset>
+  <!-- BR: 2026/08/03: Add MQTT -->
+  <fieldset>
+    <legend><i class="icon loisir-darth"></i> {{Notifications}}</legend>
+	<?php if (class_exists('jMQTT')) {
+			echo '<div class="alert alert-warning">{{Le plugin jMQTT est installé, veuillez vérifier la configuration du broker dans le plugin jMQTT et la reporter, si nécessaire, dans le plugin MQTT Manager.}}</div>';
+		}
+	?>
+    <div class="form-group">
+      <label class="col-md-4 control-label">{{Mode}}</label>
+      <div class="col-md-3">
+        <select class="configKey form-control" data-l1key="notif_mode" id="sel_notificationMode">
+          <option value="">{{A configurer}}</option>
+          <option value="legacy">{{Legacy}}</option>
+          <option value="mqtt">{{MQTT}}</option>
+        </select>
+      </div>
+    </div>
+    <div class="form-group notificationMode legacy">
+	<div class='alert alert-warning text-center'>{{Vous n'utilisez pas les notifications MQTT, mais le protocole proprietaire entre la (ou les antennes) pour notifier des changements d'etat. Il s'agit du comportement par defaut avant la version 4.0 du plugin phone_detection}}</div>
+    </div>	      
+    <div class="form-group notificationMode mqtt">
+      <label class="col-md-4 control-label">{{Topic racine}}</label>
+      <div class="col-md-3">
+        <input class="configKey form-control" data-l1key="mqtt_topic" />
+      </div>
+    </div>    
+	<div class="form-group notificationMode mqtt">
+	<div class='alert alert-warning text-center'>{{Cette configuration suppose que vous ayez installé le plugin MQTTManager sur votre jeedom. Le plugin phone_detection va recuperer les evenements MQTT provenant du plugin MQTT manager}}</div>
+    </div>	    
+  </fieldset>
+  <!-- end BR modification -->
 </form>
 <script>
  $('.changeLogLive').on('click', function () {
@@ -213,4 +243,12 @@ function phone_detection_postSaveConfiguration(){
     }
   });
 }
+
+<!-- BR: 2026/08/03: MQTT addon -->
+  $('#sel_notificationMode').off('change').on('change', function() {
+    $('.notificationMode').hide();
+    if ($(this).value() != '') {
+      $('.notificationMode.' + $(this).value()).show();
+    }
+  })
 </script>

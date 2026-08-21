@@ -59,7 +59,8 @@ class phone_detection_remote {
 	}
 
 	public function remove() {
-		return DB::remove($this);
+		DB::remove($this);
+		return self::setCacheRemotes('allremotes',self::all());
 	}
 
 	public function getCache($_key = '', $_default = '') {
@@ -81,10 +82,16 @@ class phone_detection_remote {
 	}
 
 	public function execCmd($_cmds) {
+
+		if ($this->isRemoteManaged() == false) {
+            log::add('phone_detection', 'info', 'L\'antenne ' . $this->getRemoteName() . ' n\'est pas geree (pas d\'envoie de commandes).');
+			return true;
+		}
 		$ip = $this->getConfiguration('remoteIp');
 		$port = $this->getConfiguration('remotePort', 22);
 		$user = $this->getConfiguration('remoteUser');
 		$pass = $this->getConfiguration('remotePassword');
+		$outputs = [];
 	
 		$ssh = new SSH2($ip, $port, 30);
 		if (!$ssh->login($user, $pass)) {
@@ -107,11 +114,16 @@ class phone_detection_remote {
 	}
 
 	public function sendFiles($_local, $_target) {
+
+		if ($this->isRemoteManaged() == false) {
+            log::add('phone_detection', 'info', 'L\'antenne ' . $this->getRemoteName() . ' n\'est pas geree (pas d\'envoie de fichiers).');
+			return true;
+		}		
 		$ip = $this->getConfiguration('remoteIp');
 		$port = $this->getConfiguration('remotePort', 22);
 		$user = $this->getConfiguration('remoteUser');
 		$pass = $this->getConfiguration('remotePassword');
-	
+
 		$sftp = new SFTP($ip, $port, 30);
 		if ($sftp->login($user, $pass)) {
 			log::add('phone_detection', 'debug', "send file {$_local} to {$ip}:{$_target}");
@@ -124,6 +136,8 @@ class phone_detection_remote {
 
 
 	private function appendFileContents($sourceFile, $targetFile) {
+		$source = null;
+		$target = null;
 		try {
 			// Open the source file in read mode and the target file in append mode
 			$source = fopen($sourceFile, 'r');
@@ -141,16 +155,26 @@ class phone_detection_remote {
 			log::add('phone_detection', 'error', 'An error occurred: ' . $e->getMessage());
 		}
 		finally {
-			fclose($source);
-			fclose($target);
+			if (null != $source) {
+				fclose($source);
+			}
+			if (null != $target) {
+				fclose($target);
+			}
 		}
 	}
 
 	public function getFiles($_local, $_target, $_append=false) {
+		if ($this->isRemoteManaged() == false) {
+            log::add('phone_detection', 'info', 'L\'antenne ' . $this->getRemoteName() . ' n\'est pas geree (pas de recuperation de fichiers).');
+			return true;
+		}
+
 		$ip = $this->getConfiguration('remoteIp');
 		$port = $this->getConfiguration('remotePort', 22);
 		$user = $this->getConfiguration('remoteUser');
 		$pass = $this->getConfiguration('remotePassword');
+
 		if ($_append == false) {
 			$localFile = $_local;
 		} else {
@@ -204,4 +228,8 @@ class phone_detection_remote {
 		$this->configuration = utils::setJsonAttr($this->configuration, $_key, $_value);
 		return $this;
 	}
-}
+	
+	public function isRemoteManaged() {
+		return (null != $this->getConfiguration('remoteIp'));
+	}
+}	

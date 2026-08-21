@@ -10,12 +10,248 @@ class phone_detection extends eqLogic
 {
 
     /*************** Attributs ***************/
-    const DEFAULT_ABSENT_INTERVAL = 15;
+    const DEFAULT_ABSENT_INTERVAL = 20;
     const DEFAULT_PRESENT_INTERVAL = 60;
     const DEFAULT_ABSENT_THRESHOLD = 180;
     const DEFAULT_TCP_SERVER_PORT = 55009;
 
     /************* Static methods ************/
+
+
+    /**
+     * @param string $action: the action to execute, extracted from MQTT or legacy message
+     * @param array $params: an array of parameters specific to the action. 
+     * @param array &$value: the return information, which is an array or a single value depending on the action
+     */
+    public static function deamonEventHandler($action, $params, &$value) {
+
+        $antennas = phone_detection_remote::getCacheRemotes('allremotes', array());
+        if (config::byKey('noLocal', 'phone_detection', 0) == 0){
+            $local = new phone_detection_remote();
+            utils::a2o($local, array( 'Id' => 0, 'RemoteName' => 'local'));
+            array_push($antennas, $local);
+        }
+        $value   = 0;
+        $success = false;
+
+        switch ($action) {
+            case 'update_device_status':
+                $source      = $params['source'];
+                $isReachable = (bool) ($params['isReachable'] ?? $params['value']);
+                $eqLogic = null;
+                if (isset($params['macAddress'])) {
+                    // v4 version
+                    $eqLogics = eqLogic::byTypeAndSearchConfiguration('phone_detection', array('macAddress' => $params['macAddress']));
+                    $eqLogic = !empty($eqLogics) ? $eqLogics[0] : null;
+                } else {
+                    // legacy processing < v4
+                    $eqLogic = eqLogic::byId($params['id']);
+                }
+                if (! is_object($eqLogic)) {
+                    log::add('phone_detection', 'debug', 'no eqLogic for ' . print_r($params, true) . '. Ignore');
+                    $success = false;
+                } else {
+                    // found it
+                    log::add('phone_detection','info','Update device status (' . (int)$isReachable . ') from antenna ' . $source . ' for ' . $eqLogic->getHumanName());
+                    if ($eqLogic->getConfiguration('deviceType') == 'phone' && $eqLogic->getIsEnable()) {
+                        foreach ($antennas as $antenna){
+                            $from = $antenna->getRemoteName();
+                            if ($from == $source){
+                                if (method_exists($antenna, 'setCache')) {
+                                    $antenna->setCache('lastupdate', date("Y-m-d H:i:s"));
+                                }
+                                $statePropertyCmd = $eqLogic->getCmd(null, 'state_' . $source);
+                                if (!is_object($statePropertyCmd)) {
+                                    $statePropertyCmd = new phone_detectionCmd();
+                                    $statePropertyCmd->setLogicalId('state_' . $source);
+                                    $statePropertyCmd->setIsVisible(0);
+                                    $statePropertyCmd->setIsHistorized(0);
+                                    $statePropertyCmd->setName(__('Etat_'. $source, __FILE__));
+                                    $statePropertyCmd->setType('info');
+                                    $statePropertyCmd->setSubType('binary');
+                                    $statePropertyCmd->setTemplate('dashboard', 'line');
+                                    $statePropertyCmd->setTemplate('mobile', 'line');
+                                    $statePropertyCmd->setEqLogic_id($eqLogic->getId());
+                                    $statePropertyCmd->save();
+                                    $eqLogic->checkAndUpdateCmd($statePropertyCmd, 0);
+                                }
+                                $currentState = (int)($statePropertyCmd->execCmd() == 1);
+                                log::add('phone_detection','info', 'Update value from ' . (int)$currentState . ' to ' . (int)$isReachable . ' for ' . $statePropertyCmd->getHumanName());
+                                $eqLogic->checkAndUpdateCmd($statePropertyCmd, $isReachable);
+                                $eqLogic->computePresence();
+                                phone_detection::updateGlobalDevice();
+                                break;
+                            }
+                        }
+                        $success = true;
+                    }
+                }
+                break;
+
+            case 'test':
+                $source  = $params['source'];
+
+                log::add('phone_detection','info','Receive a test from antenna ' . $source);
+                if ($source != 'local'){
+                    foreach ($antennas as $antenna){
+                        if ($antenna->getRemoteName() == $source){
+                            $antenna->setCache('lastupdate', date("Y-m-d H:i:s"));
+                            break;
+                        }
+                    }
+                }
+                $value   = 0;
+                $success = true;
+                break;
+
+            case 'heartbeat':
+                $source  = $params['source'];
+                $version = $params['version'];
+                $alive   = $params['alive'];        
+                log::add('phone_detection','debug','This is a heartbeat from antenna ' . $source . ' version=' . $version . ' alive=' . $alive);
+                if ($source != 'local'){
+                    foreach ($antennas as $antenna){
+                        if ($antenna->getRemoteName() == $source){
+                            $antenna->setCache('version', $version);
+                            if ($alive == 0) {
+                                if (phone_detection::stopremote($antenna->getId())) {
+                                    log::add('phone_detection', 'error', 'Arret de l\'antenne ' . $antenna->getRemoteName() . ' suite a un probleme reporte par l\'antenne.');
+                                    message::add('phone_detection', 'Arret de l\'antenne ' . $antenna->getRemoteName() . ' suite a un probleme reporte par l\'antenne.');
+                                }
+                            } else {
+                                $antenna->setCache('lastupdate', date("Y-m-d H:i:s"));
+                            }
+                            break;
+                        }
+                    }
+                } else {
+                    if ($alive == 0) {
+                        log::add('phone_detection', 'error', 'Arret de l\'antenne local suite a un probleme reporte par l\'antenne.');                       
+                        phone_detection::deamon_stop();
+                        message::add('phone_detection', 'Arret de l\'antenne local suite a un probleme reporte par l\'antenne.');
+                    } 
+                }
+                $success = true;
+                $value = 0;
+                break;
+
+            case 'get_status':
+                $source  = $params['source'];
+                $eqLogic = null;
+                if (isset($params['macAddress'])) {
+                    // v4 version
+                    $eqLogics = eqLogic::byTypeAndSearchConfiguration('phone_detection', array('macAddress' => $params['macAddress']));
+                    $eqLogic = !empty($eqLogics) ? $eqLogics[0] : null;
+                } else {
+                    // legacy processing < v4
+                    $eqLogic = eqLogic::byId($params['id']);
+                }
+                if (! is_object($eqLogic)) {
+                    log::add('phone_detection', 'debug', 'no eqLogic for ' . print_r($params, true) . '. Ignore');
+                    $success = false;
+                } else {
+               
+                    log::add('phone_detection','info','Receive get_status for ' . $eqLogic->getHumanName() . ' from antenna ' . $source);
+
+                    $values = null;
+                    foreach ($antennas as $antenna){
+                        $from = $antenna->getRemoteName();
+
+                        if ($from == $source){
+                            if (method_exists($antenna, 'setCache')) {
+                            $antenna->setCache('lastupdate', date("Y-m-d H:i:s"));
+                            }
+                            $statePropertyCmd = $eqLogic->getCmd(null, 'state_' . $source);
+                            if (!is_object($statePropertyCmd)) {
+                                $statePropertyCmd = new phone_detectionCmd();
+                                $statePropertyCmd->setLogicalId('state_' . $source);
+                                $statePropertyCmd->setIsVisible(0);
+                                $statePropertyCmd->setIsHistorized(0);
+                                $statePropertyCmd->setName(__('Etat_'. $source, __FILE__));
+                                $statePropertyCmd->setType('info');
+                                $statePropertyCmd->setSubType('binary');
+                                $statePropertyCmd->setTemplate('dashboard', 'line');
+                                $statePropertyCmd->setTemplate('mobile', 'line');
+                                $statePropertyCmd->setEqLogic_id($eqLogic->getId());
+                                $statePropertyCmd->save();
+                                $eqLogic->checkAndUpdateCmd($statePropertyCmd, 0);
+                            }
+                            $value = (int) ($statePropertyCmd->execCmd() == 1);
+                            break;
+                        }
+                    }
+                    $success = true;
+                }
+                break;
+
+            case 'refresh_group':
+                $source  = $params['source'];
+
+                log::add('phone_detection','info','Receive refresh_group from antenna ' . $source);
+                phone_detection::updateGlobalDevice();
+                $success = true;
+                break;
+
+            case 'get_devices':
+                $source  = $params['source'];
+
+                log::add('phone_detection','info','Receive get_devices from antenna ' . $source);
+                phone_detection::updateGlobalDevice();
+                $devices = eqLogic::byType("phone_detection", true);
+                $values = Null;
+
+                foreach($devices as $d) {
+                    if ($d->getConfiguration('deviceType') != 'phone' || $d->getIsEnable() == false) {
+                        continue;
+                    }
+
+                    foreach ($antennas as $antenna){
+                        $from = $antenna->getRemoteName();
+                        if ($from == $source){
+                            if (method_exists($antenna, 'setCache')) {
+                            $antenna->setCache('lastupdate', date("Y-m-d H:i:s"));
+                            }
+                            $statePropertyCmd = $d->getCmd(null, 'state_' . $source);
+                            if (!is_object($statePropertyCmd)) {
+                                $statePropertyCmd = new phone_detectionCmd();
+                                $statePropertyCmd->setLogicalId('state_' . $source);
+                                $statePropertyCmd->setIsVisible(0);
+                                $statePropertyCmd->setIsHistorized(0);
+                                $statePropertyCmd->setName(__('Etat_'. $source, __FILE__));
+                                $statePropertyCmd->setType('info');
+                                $statePropertyCmd->setSubType('binary');
+                                $statePropertyCmd->setTemplate('dashboard', 'line');
+                                $statePropertyCmd->setTemplate('mobile', 'line');
+                                $statePropertyCmd->setEqLogic_id($d->getId());
+                                $statePropertyCmd->save();
+                                $d->checkAndUpdateCmd($statePropertyCmd, 0);
+                            }
+                            $stateValue   = (int)($statePropertyCmd->execCmd() == 1);
+                            $getValueDate = $statePropertyCmd->getValueDate();
+                            $name         = $d->getName();
+                            $humanName    = $d->getHumanName();
+                            $id           = $d->getId();
+                            $macAddress   = $d->getConfiguration('macAddress');
+
+                            $values[$id] = [
+                                'isReachable'   => $stateValue,
+                                'lastValueDate' => $getValueDate,
+                                'name'          => $name,
+                                'humanName'     => $humanName,
+                                'deviceId'      => $id,
+                                'macAddress'    => $macAddress
+                            ];
+                            break;
+                        }
+                    }
+                }
+                $success = true;
+                $value = $values;
+                break;
+        }
+        return $success;
+    }
+
 
 
     /**
@@ -47,9 +283,11 @@ class phone_detection extends eqLogic
     /**
      * Call the call Python daemon (local or remote).
      *
-     * @param  string $action Action calling.
-     * @param  string $args   Other arguments.
-     * @return array  Result of the callZiGate.
+     */
+
+    /**
+     * @param string $query: the command to execute on the remote antenna.
+     * @param string $sock: the socket used to communicate with the remote antenna, using proprietary protocol 
      */
     public static function callDaemon($query, $sock)
     {
@@ -72,7 +310,7 @@ class phone_detection extends eqLogic
                     }
 	        }
             } catch( Exception $ex) {
-                log::add('phone_detection', 'info', print_r($ex));
+                log::add('phone_detection', 'info', print_r($ex, true));
             } finally {
                 fclose($fp);
             }
@@ -93,7 +331,7 @@ class phone_detection extends eqLogic
             }
             $statePropertyCmd = $d->getCmd('info', 'state');
             $stateValue       = (int) ($statePropertyCmd->execCmd() == 1);
-            log::add('phone_detection', 'debug', $d->getHumanName() . '-->' . $stateValue);
+            log::add('phone_detection', 'debug', '    processing updateGlobalDevice with ' . $d->getHumanName() . '-->' . $stateValue);
             $deviceCount += $stateValue;
         }
 
@@ -112,9 +350,16 @@ class phone_detection extends eqLogic
     //
     // Gestion des antennes distantes, base sur le plugin BLEA
     //
+    /**
+     * @param int $_remoteId: the remote uniq identifier in DB 
+     */
     public static function sendRemoteFiles($_remoteId) {
         phone_detection::stopremote($_remoteId);
         $remoteObject = phone_detection_remote::byId($_remoteId);
+        if ($remoteObject->isRemoteManaged() == false) {
+            log::add('phone_detection', 'info', 'L\'antenne ' . $remoteObject->getRemoteName() . ' n\'est pas geree (pas d\'envoie de fichiers).');
+            return true;
+        }            
         $user=$remoteObject->getConfiguration('remoteUser');
         $script_path = dirname(__FILE__) . '/../../resources/';
         log::add('phone_detection','info','Compression du dossier local');
@@ -132,8 +377,15 @@ class phone_detection extends eqLogic
         return $result;
     }
 
+    /**
+     * @param int $_remoteId: the remote uniq identifier in DB 
+     */
     public static function getRemoteLog($_remoteId, $_dependancy='', $_append=false) {
         $remoteObject = phone_detection_remote::byId($_remoteId);
+        if ($remoteObject->isRemoteManaged() == false) {
+            log::add('phone_detection', 'info', 'L\'antenne ' . $remoteObject->getRemoteName() . ' n\'est pas geree (pas de recuperation de fichiers de log).');
+            return true;
+        }
         $name = $remoteObject->getRemoteName();
         $local = dirname(__FILE__) . '/../../../../log/phone_detection_'.str_replace(' ','-',$name).$_dependancy;
         if ($_append == false && file_exists($local)) {
@@ -148,19 +400,33 @@ class phone_detection extends eqLogic
         return false;
     }
 
+    /**
+     * @param int $_remoteId: the remote uniq identifier in DB 
+     */
     public static function dependancyRemote($_remoteId) {
         log::add('phone_detection', 'debug', 'entering dependancyRemote');
         phone_detection::stopremote($_remoteId);
         log::add('phone_detection', 'debug', 'remote stopped');
         $remoteObject = phone_detection_remote::byId($_remoteId);
+        if ($remoteObject->isRemoteManaged() == false) {
+            log::add('phone_detection', 'info', 'L\'antenne ' . $remoteObject->getRemoteName() . ' n\'est pas geree (pas d\'installation de dependances).');
+            return true;
+        }
         $user = $remoteObject->getConfiguration('remoteUser');
         log::add('phone_detection','info',__('Installation des dépendances sur ' . $remoteObject->getRemoteName(),__FILE__));
         return $remoteObject->execCmd(['bash /home/'.$user.'/phone_detectiond/resources/install_apt.sh /tmp/phone_detection_dependancy 2>&1 &']);
     }
 
+    /**
+     * @param int $_remoteId: the remote uniq identifier in DB 
+     */
     public static function launchremote($_remoteId) {
-        log::add('phone_detection','info',__('Lancement du démon distant',__FILE__));
         $remoteObject = phone_detection_remote::byId($_remoteId);
+        if ($remoteObject->isRemoteManaged() == false) {
+            log::add('phone_detection', 'info', 'L\'antenne ' . $remoteObject->getRemoteName() . ' n\'est pas geree (pas de demarrage du demon).');
+            return true;
+        }
+        log::add('phone_detection','info',__('Lancement du démon distant',__FILE__));
         $last = $remoteObject->getCache('lastupdate','0');
         phone_detection::stopremote($_remoteId);
         sleep(5);
@@ -170,7 +436,10 @@ class phone_detection extends eqLogic
         $script_path = '/home/'.$user.'/phone_detectiond/resources/phone_detectiond';
         $interval = config::byKey('interval', 'phone_detection', phone_detection::DEFAULT_ABSENT_INTERVAL);
         $present_interval = config::byKey('present_interval', 'phone_detection', phone_detection::DEFAULT_PRESENT_INTERVAL);
-        $absentThreshold = config::byKey('absentThreshold', 'phone_detection', phone_detection::DEFAULT_ABSENT_THRESHOLD);
+        $absent_threshold = config::byKey('absent_threshold', 'phone_detection', phone_detection::DEFAULT_ABSENT_THRESHOLD);
+
+
+        // Use v3 style commands for compatibility, will upgrade to v4 later
         $cmd = 'sudo /usr/bin/python3 ' . $script_path . '/phone_detectiond.py';
         $cmd .= ' --loglevel ' . log::convertLogLevel(log::getLogLevel('phone_detection'));
         $cmd .= ' --device ' . $device;
@@ -181,21 +450,43 @@ class phone_detection extends eqLogic
         $cmd .= ' --daemonname "' . $remoteObject->getRemoteName() . '"';
         $cmd .= ' --interval ' . $interval;
         $cmd .= ' --present_interval ' . $present_interval;
-        $cmd .= ' --absentThreshold ' . $absentThreshold;
+        $cmd .= ' --absentThreshold ' . $absent_threshold;
+
+        log::add('phone_detection', 'info', 'Using mode: ' . config::byKey('notif_mode', 'phone_detection', 'legacy'));
+        if ('mqtt' === config::byKey('notif_mode', 'phone_detection', 'legacy')) {
+            $mqtt = mqtt2::getFormatedInfos();
+            $mqtt_topic = config::byKey('mqtt_topic', 'phone_detection', __CLASS__);
+   			$mqtt_topic = trim($mqtt_topic, '/');
+
+            $cmd .= ' --mqtt-host ' . $mqtt['ip'];
+            $cmd .= ' --mqtt-port ' . $mqtt['port'];
+            $cmd .= ' --mqtt-protocol ' . $mqtt['protocol'];
+            $cmd .= ' --mqtt-username ' . $mqtt['user'];
+            $cmd .= ' --mqtt-password ' . $mqtt['password'];
+            $cmd .= ' --mqtt-topic ' . $mqtt_topic;
+        }
+
         $cmd .= ' >> ' . '/tmp/phone_detection' . ' 2>&1 &';
         log::add('phone_detection','info','Lancement du démon distant ' . $cmd);
         phone_detection_remote::setCacheRemotes('allremotes',phone_detection_remote::all());
         return $remoteObject->execCmd([$cmd]);
     }
 
+    /**
+     * @param int $_remoteId: the remote uniq identifier in DB 
+     */
     public static function stopremote($_remoteId) {
-        log::add('phone_detection','info',__('Arret du demon distant ' . $_remoteId,__FILE__));
         $remoteObject = phone_detection_remote::byId($_remoteId);
+        if ($remoteObject->isRemoteManaged() == false) {
+            log::add('phone_detection', 'info', 'L\'antenne ' . $remoteObject->getRemoteName() . ' n\'est pas geree (pas d\'arret du deamon).');
+            return false;
+        }
+        log::add('phone_detection','info',__('Arret du demon distant ' . $_remoteId,__FILE__));
         $value = array('apikey' => jeedom::getApiKey('phone_detection'), 'action' => 'stop', 'args' => '');
         phone_detection::callRemoteDaemon($value, $remoteObject);
         $port   = config::byKey('socketport', 'phone_detection', phone_detection::DEFAULT_TCP_SERVER_PORT);
         $remoteObject->execCmd(['fuser -k ' . $port . '/tcp >> /dev/null 2>&1 &']);
-        return True;
+        return true;
     }
 
 
@@ -269,7 +560,7 @@ class phone_detection extends eqLogic
         $btport = config::byKey('btport', 'phone_detection');
         $interval = config::byKey('interval', 'phone_detection', phone_detection::DEFAULT_ABSENT_INTERVAL);
         $present_interval = config::byKey('present_interval', 'phone_detection', phone_detection::DEFAULT_PRESENT_INTERVAL);
-        $absentThreshold = config::byKey('absentThreshold', 'phone_detection', phone_detection::DEFAULT_ABSENT_THRESHOLD);
+        $absent_threshold = config::byKey('absent_threshold', 'phone_detection', phone_detection::DEFAULT_ABSENT_THRESHOLD);
         $port = config::byKey('socketport', 'phone_detection', phone_detection::DEFAULT_TCP_SERVER_PORT);
 
         if (phone_detection::dependancy_info()['state'] == 'nok') {
@@ -288,27 +579,39 @@ class phone_detection extends eqLogic
 
         if($interval == 0 || empty($interval)) {
             $return['launchable'] = 'nok';
-            $return['launchable_message'] = _('Veuillez renseigner un interval de mise à jour en absence supérieur à 0', __FILE__);
+            $return['launchable_message'] = __('Veuillez renseigner un interval de mise à jour en absence supérieur à 0', __FILE__);
         }
 
         if($present_interval == 0 || empty($present_interval)) {
             $return['launchable'] = 'nok';
-            $return['launchable_message'] = _('Veuillez renseigner un interval de mise à jour en présence supérieur à 0', __FILE__);
+            $return['launchable_message'] = __('Veuillez renseigner un interval de mise à jour en présence supérieur à 0', __FILE__);
         }
 
-        if($absentThreshold == 0 || empty($absentThreshold)) {
+        if($absent_threshold == 0 || empty($absent_threshold)) {
             $return['launchable'] = 'nok';
-            $return['launchable_message'] = _('Veuillez renseigner un délai d\'absence supérieur à 0', __FILE__);
+            $return['launchable_message'] = __('Veuillez renseigner un délai d\'absence supérieur à 0', __FILE__);
         }
 
         if($port == 0 || empty($port)) {
             $return['launchable'] = 'nok';
-            $return['launchable_message'] = _('Veuillez renseigner un port (default 55009)', __FILE__);
+            $return['launchable_message'] = __('Veuillez renseigner un port (default 55009)', __FILE__);
         }
 
+        if ('mqtt' === config::byKey('notif_mode', 'phone_detection', 'legacy')) {
+            if (!class_exists('mqtt2')) {
+                $return['launchable'] = 'nok';
+                $return['launchable_message'] = __("Le plugin MQTT Manager n'est pas installé", __FILE__);
+            } else {
+                if (mqtt2::deamon_info()['state'] != 'ok') {
+                    $return['launchable'] = 'nok';
+                    $return['launchable_message'] = __("Le démon MQTT Manager n'est pas démarré", __FILE__);
+                }
+            }
+        }        
 
         return $return;
     }
+    
 
 
     /**
@@ -327,10 +630,11 @@ class phone_detection extends eqLogic
         $deamon_path = dirname(__FILE__) . '/../../resources';
         $interval = config::byKey('interval', 'phone_detection', phone_detection::DEFAULT_ABSENT_INTERVAL);
         $present_interval = config::byKey('present_interval', 'phone_detection', phone_detection::DEFAULT_PRESENT_INTERVAL);
-        $absentThreshold = config::byKey('absentThreshold', 'phone_detection', phone_detection::DEFAULT_ABSENT_THRESHOLD);
+        $absent_threshold = config::byKey('absent_threshold', 'phone_detection', phone_detection::DEFAULT_ABSENT_THRESHOLD);
         $tcpport = config::byKey('socketport', 'phone_detection', phone_detection::DEFAULT_TCP_SERVER_PORT);
         $callback = network::getNetworkAccess('internal', 'proto:127.0.0.1:port:comp') . '/plugins/phone_detection/core/php/phone_detection.php';
-
+    
+        // Use v3 style commands for compatibility, will upgrade to v4 later
         $cmd = 'sudo /usr/bin/python3 ' . $deamon_path . '/phone_detectiond/phone_detectiond.py ';
         $cmd .= ' --device ' . $btport;
         $cmd .= ' --loglevel ' . log::convertLogLevel(log::getLogLevel('phone_detection'));
@@ -342,7 +646,21 @@ class phone_detection extends eqLogic
         $cmd .= ' --daemonname "local"';
         $cmd .= ' --interval ' . $interval;
         $cmd .= ' --present_interval ' . $present_interval;
-        $cmd .= ' --absentThreshold ' . $absentThreshold;
+        $cmd .= ' --absentThreshold ' . $absent_threshold;
+
+        log::add('phone_detection', 'info', 'Using mode: ' . config::byKey('notif_mode', 'phone_detection', 'legacy'));
+        if ('mqtt' === config::byKey('notif_mode', 'phone_detection', 'legacy')) {
+            $mqtt = mqtt2::getFormatedInfos();
+            $mqtt_topic = config::byKey('mqtt_topic', 'phone_detection', __CLASS__);
+   			$mqtt_topic = trim($mqtt_topic, '/');
+
+            $cmd .= ' --mqtt-host ' . $mqtt['ip'];
+            $cmd .= ' --mqtt-port ' . $mqtt['port'];
+            $cmd .= ' --mqtt-protocol ' . $mqtt['protocol'];
+            $cmd .= ' --mqtt-username ' . $mqtt['user'];
+            $cmd .= ' --mqtt-password ' . $mqtt['password'];
+            $cmd .= ' --mqtt-topic ' . $mqtt_topic;
+        }
 
         log::add('phone_detection', 'info', 'Lancement démon phone_detection : ' . $cmd);
         exec($cmd . ' >> ' . log::getPathToLog('phone_detection') . ' 2>&1 &');
@@ -407,6 +725,96 @@ class phone_detection extends eqLogic
         }
     }
 
+  	public static function postConfig_mqtt_topic($_value = null) {
+    	if (!class_exists('mqtt2')) {
+    	  	return;
+    	}
+    	if (method_exists('mqtt2', 'removePluginTopicByPlugin')) {
+      		mqtt2::removePluginTopicByPlugin(__CLASS__);
+    	}
+   		if ('mqtt' === config::byKey('notif_mode', 'phone_detection', 'legacy')) {
+       		log::add('phone_detection', 'debug', 'Inscription au plugin mqtt2');
+            $mqtt_topic = config::byKey('mqtt_topic', 'phone_detection', __CLASS__);
+   	    	$mqtt_topic = trim($mqtt_topic, '/');        
+   		    mqtt2::addPluginTopic(__CLASS__, $mqtt_topic);
+        }
+  	}  
+
+    /**
+     * @param string $_datas: an array representing the MQTT message. The data contains a json message
+     */
+    public static function handleMqttMessage($_datas) {
+
+        try {
+            // If $_datas is already an array, do not decode it again.
+            $data = is_string($_datas)
+                ? json_decode($_datas, true, 512, JSON_THROW_ON_ERROR)
+                : $_datas;
+
+            log::add('phone_detection', 'debug', 'Receiving MQTT message: ' . json_encode($data));
+
+            $rootTopic = config::byKey('mqtt_topic', 'phone_detection', __CLASS__);
+   			$rootTopic = trim($rootTopic, '/');
+
+            // 1. On verfiie qu'on est bien dans notre base topic.
+            if (!isset($data[$rootTopic]) || !is_array($data[$rootTopic])) {
+                log::add('phone_detection', 'debug', 'MQTT message received, but root topic is not for phone_detection');
+                return;
+            }    
+
+            // 2. On parcours les antennes.
+            foreach ($data[$rootTopic] as $antenna => $antennaData) {
+
+                if (!is_array($antennaData)) {
+                    log::add('phone_detection', 'warning', 'Message MQTT invalide (' . $antenna . '(' . print_r($antennaData, true) . ')');
+                    continue;
+                }
+
+                // 3. On parcours les types de message ("hearbeat" ou "status")
+                foreach ($antennaData as $messageType => $payloadData) {
+                    $retval = 0;
+                    switch ($messageType) {
+                        case 'status':
+                            //4. On a le mobile humanName
+                            foreach ($payloadData as $deviceName => $devicePayload) {
+                                if (!is_array($devicePayload)) {
+                                    log::add('phone_detection', 'warning', 'Message MQTT status invalide (' . $antenna . '(' . print_r($antennaData) . ')');
+                                    continue;
+                                }
+                                // On injecte le nom de l'antenne et l'identifiant du device 
+                                // dans le payload pour que la méthode update_device_status ait toutes les infos
+                                $devicePayload['source'] ??= $antenna;
+                                $devicePayload['name'] ??= $deviceName;
+                                phone_detection::deamonEventHandler('update_device_status', $devicePayload, $retval);
+                            }                                      
+                            break;
+
+                        case 'heartbeat':
+                            $payloadData['source'] ??= $antenna;
+                            phone_detection::deamonEventHandler('heartbeat', $payloadData, $retval);
+                            break;
+
+                        default:
+                            log::add('phone_detection', 'warning', 'Unexpected MQTT message type: ' . $messageType . ', antenna: ' . $antenna . ', payload: ' . json_encode($payloadData));
+                            break;
+                    }
+                }
+            }
+        } catch (JsonException $e) {
+            log::add('phone_detection', 'error', 'Invalid MQTT JSON: ' . $e->getMessage());
+        }            
+    }
+
+
+    public static function macAddressToUpperCase() {
+
+        $allEqlogic = eqLogic::byType('phone_detection');
+        foreach ($allEqlogic as $eqLogic) {
+            $macAddress = $eqLogic->getConfiguration('macAddress');
+            $eqLogic->setConfiguration('macAddress', strtoupper($macAddress));
+        }
+    }
+
     public static function health() {
         $return = array();
         $remotes = phone_detection_remote::getCacheRemotes('allremotes',array());
@@ -444,8 +852,11 @@ class phone_detection extends eqLogic
         $remotes = phone_detection_remote::getCacheRemotes('allremotes',array());
         $allEqlogic = eqLogic::byType('phone_detection');
         foreach ($remotes as $remote) {
+            if (!is_object($remote)) {
+                continue;
+            }
             $last = $remote->getCache('lastupdate','0');
-            if (($last == '0' or time() - strtotime($last)>65)) {
+            if (($last == '0' or time() - strtotime($last) > 65)) {
                 $auto = $remote->getConfiguration('remoteDaemonAuto','0');
                 foreach ($allEqlogic as $eqLogic){
                     $stateCmd = $eqLogic->getCmd(null, 'state_' . $remote->getRemoteName());
@@ -476,7 +887,8 @@ class phone_detection extends eqLogic
         $remotes = phone_detection_remote::getCacheRemotes('allremotes',array());
         $availremote= array();
         foreach ($remotes as $remote) {
-	        if (method_exists($remote, 'getRemoteName')) {
+
+	        if (is_object($remote) && method_exists($remote, 'getRemoteName')) {
                 $availremote[] = $remote->getRemoteName();
                 self::getRemoteLog($remote->getId(), '', true);
 	        }
@@ -498,13 +910,22 @@ class phone_detection extends eqLogic
         }
     }
 
+    /**
+     * @param string $query: the command to execute on the remote host
+     * @param phone_detection_remote $remote: the name of the remote host (the antenna name)
+     */
     public static function callRemoteDaemon($query, $remote) {
         $ip = $remote->getConfiguration('remoteIp');
-        $sock = 'tcp://' . $ip . ':' . config::byKey('socketport', 'phone_detection', phone_detection::DEFAULT_TCP_SERVER_PORT);
-        $remote->setCache('lastupdate','0');
-        phone_detection::callDaemon($query, $sock);
+        if (isset($ip)) {
+            $sock = 'tcp://' . $ip . ':' . config::byKey('socketport', 'phone_detection', phone_detection::DEFAULT_TCP_SERVER_PORT);
+            $remote->setCache('lastupdate','0');
+            phone_detection::callDaemon($query, $sock);
+        }
     }
 
+    /**
+     * @param string $_level log level (debug, info, warning, error, critical)
+     */
     public static function changeLogLive($_level) {
         phone_detection::callDaemons($_level);
     }
@@ -786,14 +1207,10 @@ class phone_detection extends eqLogic
             }
 
         } catch( Exception $ex) {
-            log::add('phone_detection', 'debug', print_r($ex));
+            log::add('phone_detection', 'debug', print_r($ex, true));
         }
     }
 
-    private function applyModuleConfiguration() {
-      $this->setConfiguration('applyMacAddress', $this->getConfiguration('macAddress'));
-      $this->save();
-    }
     /********** Getters and setters **********/
 
 }
@@ -823,7 +1240,7 @@ class phone_detectionCmd extends cmd
 
                 // On récupère la mac address de l'équipement
                 $macAddress = $phone_detectionObj->getConfiguration('macAddress');
-                    log::add('phone_detection','debug', 'mac address: '.$macAddress);
+                log::add('phone_detection','debug', 'mac address: '.$macAddress);
 
                 // On ping le device pour savoir s'il est là
                 $btController = config::byKey('btport', 'phone_detection');

@@ -44,6 +44,8 @@ function phone_detection_update() {
 
     phone_detection::dependancy_install();
 
+    phone_detection::macAddressToUpperCase();
+
     message::removeAll('Phone_detection');
     message::add('Phone_detection', 'Mise a jour du plugin Phone_detection terminée, vous êtes en version' . phone_detection::getVersion());
 

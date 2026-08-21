@@ -93,7 +93,7 @@ foreach ($remotes as $remote) {
 								<input type="text" class="PhoneDetectionRemoteAttr form-control" data-l1key="configuration" data-l2key="remotePort"/>
 							</div>
 						</div>
-						<div class="form-group">
+						<div class="form-group" id="remoteExtraFields">
 							<label class="col-sm-2 control-label">{{User}}</label>
 							<div class="col-sm-3">
 								<input type="text" class="PhoneDetectionRemoteAttr form-control" data-l1key="configuration" data-l2key="remoteUser"/>
@@ -103,12 +103,14 @@ foreach ($remotes as $remote) {
 								<input type="password" class="PhoneDetectionRemoteAttr form-control" data-l1key="configuration" data-l2key="remotePassword"/>
 							</div>
 						</div>
-						<div class="form-group">
+						<div class="form-group" id="remoteDeviceField">
 							<label class="col-sm-2 control-label">{{Device}}</label>
 							<div class="col-sm-3">
 								<input type="text" class="PhoneDetectionRemoteAttr form-control" data-l1key="configuration" data-l2key="remoteDevice" placeholder="{{ex : hci0}}"/>
 							</div>
 						</div>
+					    <div id="remoteActionButtons">
+
 						<?php
                         if (method_exists( $id ,'sendRemoteFiles')){
                         echo '<div class="form-group">
@@ -150,6 +152,7 @@ foreach ($remotes as $remote) {
 						}
 						?>
 						<div class="alert alert-info">{{La durée d'installation des dépendances sur une antenne peut prendre jusqu'à presque 30 minutes selon les antennes. SI vous utilisez des antennes PENSEZ à autoriser l'api du plugin sur autre chose que LOCALHOST}}</div>
+						</div>
 				</div>
 						</fieldset>
 				</form>
@@ -182,12 +185,10 @@ foreach ($remotes as $remote) {
 	});
 
 	$('.eqLogicDisplayCard').on('click',function(){
-        console.log('BR>> .eqLogicDisplayCard=' + $(this).attr('data-remote_id'));
 		displayPhoneDetectionRemote($(this).attr('data-remote_id'));
 	});
 
 	function displayPhoneDetectionRemote(_id){
-        console.log('BR>> displayPhoneDetectionRemote=' + _id);
 		$('.li_PhoneDetectionRemote').removeClass('active');
 		$('.li_PhoneDetectionRemote[data-PhoneDetectionRemote_id='+_id+']').addClass('active');
 		$.ajax({
@@ -216,7 +217,6 @@ foreach ($remotes as $remote) {
 	}
 
 	function displayPhoneDetectionRemoteComm(_id){
-        console.log('BR>> displayPhoneDetectionRemoteComm=' + _id);
         if (_id != undefined) {
 		    $('.li_PhoneDetectionRemote').removeClass('active');
 		    $('.li_PhoneDetectionRemote[data-PhoneDetectionRemote_id='+_id+']').addClass('active');
@@ -318,7 +318,6 @@ foreach ($remotes as $remote) {
 
 	$('.PhoneDetectionRemoteAction[data-action=getRemoteLog]').on('click',function(){
 		var phone_detection_remote = $('.PhoneDetectionRemote').getValues('.PhoneDetectionRemoteAttr')[0];
-        console.log('BR>> attr = ' + phone_detection_remote + ', .li = ' + $('.li_PhoneDetectionRemote.active').attr('data-PhoneDetectionRemote_id'));
 		$.ajax({
 			type: "POST",
 			url: "plugins/"+plugin+"/core/ajax/"+plugin+".ajax.php",
@@ -411,7 +410,6 @@ foreach ($remotes as $remote) {
 
 	$('.PhoneDetectionRemoteAction[data-action=stopremote]').on('click',function(){
 		var phone_detection_remote = $('.PhoneDetectionRemote').getValues('.PhoneDetectionRemoteAttr')[0];
-        console.log('BR>> attr = ' + phone_detection_remote + ', .li = ' + $('.li_PhoneDetectionRemote.active').attr('data-PhoneDetectionRemote_id'));
 		$.ajax({
 			type: "POST",
 			url: "plugins/"+plugin+"/core/ajax/"+plugin+".ajax.php",
@@ -490,4 +488,25 @@ foreach ($remotes as $remote) {
 window.setInterval(function () {
     displayPhoneDetectionRemoteComm($('.li_PhoneDetectionRemote.active').attr('data-PhoneDetectionRemote_id'));
 }, 5000);
+
+function toggleRemoteFields() {
+    var ip = $('.PhoneDetectionRemoteAttr[data-l2key="remoteIp"]').value();
+    // isRemoteManaged doit être défini globalement ou passé via data.result
+    var showFields = (ip !== '');
+
+    if (showFields) {
+        $('#remoteExtraFields').show();
+        $('#remoteDeviceField').show();
+        $('#remoteActionButtons').show();
+    } else {
+        $('#remoteExtraFields').hide();
+        $('#remoteDeviceField').hide();
+        $('#remoteActionButtons').hide();
+    }
+}
+
+setTimeout(function() {
+    refreshDaemonMode();
+    toggleRemoteFields();
+}, 200);
 </script>

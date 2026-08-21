@@ -6,6 +6,70 @@ lang: fr_FR
 
 # Changelog
 
+## 2026-07-31 v4.0.0
+
+### Changement majeur
+
+ajout du MQTT pour recevoir les notifications de changement d'etat des mobiles et le heartbeat des antennes.
+Pour utiliser MQTT il faut avoir le plugin MQTTManager installe, et selectionner "MQTT" dans la configuration du plugin. Si vous n'avez pas MQTTManager, ou que vous souhaitez le meme mode qu'auparavant, il faut selectionner le mode "legacy".
+Le topic de base par defaut est "phone_detection", mais vous pouvez le configurer dans la page de configuration du plugin.
+Les messages envoyes au MQTT broker sont:
+
+    <base_topic>/<antenne>/heartbeat {infos}
+    <base_topic>/<antenne>/status/<mobile name> {infos}
+
+N'oubliez pas de mettre a jour les antennes, et de relancer les dependances !
+
+Si vous utilisez MQTT, vous pouvez recevoir les messages des antennes sur un autre jeedom (de test par exemple). Pour cela, sur le jeedom de test, vous devez configurer les antennes pour lesquelles vous voulez recevoir les messages MQTT, mais uniquement le nom (identique au jeedom principal). Il ne faut pas entrer d'autres parametres comme l'adresse IP de l'antenne, ... Les antennes seront ainsi consideree comme "Non geree", et le plugin ne fera aucune action sur les antennes distantes (comme les arreter, mettre a jours les fichiers, recuperer les logs, ...). Ensuite, vous il faut creer les telephones, qui n'ont pas besoin d'avoir le meme nom, les messages MQTT sont traites sur la mac adresse recu dans le message pour identifier le telephone.
+
+### Autres changements
+
+Changement pour ameliorer la compatibilite avec Debian12 et Debian13.
+Utilisation the l'API python pour piloter le driver bluetooth en evitant d'utiliser hciconfig. hciconfig n'est utilise que si l'interface bluetooth est "DOWN" pour la passer "UP".
+
+> Comme pour Debian12, le driver bluetooth est moins robuste que dans Debian11. Pour eviter les erreurs bluetooth (visible sur la console) qui force le plugin a arreter l'antenne et a la redemarrer, j'ai change les intervales par defaut:
+>
+> * Intervalle de mise à jour quand le téléphone est absent: il passe de 15s a 20s
+> * Intervalle de mise à jour quand le téléphone est présent: reste a 60s
+> * Délai pour considérer le téléphone comme absent: il passe de 180s a 300s
+
+Rappel: pour les intervales de temps, il est important de choisir l'intervalle de temps quand le telephone est present comme un multiple de quand il est absent (dans notre cas, 60s = 3x20s).
+
+### Configuration des intervalles en fonction du nombre de mobiles
+
+Un gros travail a ete fait pour eviter les erreurs bluetooth, avec un driver bluetooth sature par les requetes. Auparavant, le plugin envoye des requetes a un rythme de 50ms, qui pouvait generer des erreurs sur le driver, qui n'accepter plus de commande. C'est l'erreur (alive=0) qui apparaissait dans les messages. Pour eviter ce probleme, je calcule dynamiquement le temps d'attente, en fonction du nombre de mobiles concernes par une requete bluetooth, de l'intervalle de temps absent (20s par defaut), de l'intervalle de temps present (60s par defaut), le nombre d'essais pour un meme mobile (2)
+
+    temps d'attente entre 2 requetes = ((PGCD(intervalPresent, intervalAbsent) - 5secondes) / essais) / nb Mobiles
+
+Par exemple, si vous avez 4 mobiles, intervalAbsent = 20s, intervalPresent = 60s, essais = 2
+
+    PGCD(20, 60) = 20
+    temps d'attente = ((20 - 5) / 2) / 4 = 1,875ms
+
+Exemple de logs, 4 mobiles, 1 present: on a 3 mobiles absents, donc toutes les 20s, et 1 mobile present toute les minutes.
+
+    [2026-08-12 10:36:23][DEBUG][root](Thread-2 (__run)) : attempt: 1/2, number of mobiles: 3, btRequestInterval: 2.5
+    [2026-08-12 10:36:43][DEBUG][root](Thread-2 (__run)) : attempt: 1/2, number of mobiles: 3, btRequestInterval: 2.5
+    [2026-08-12 10:37:03][DEBUG][root](Thread-2 (__run)) : attempt: 1/2, number of mobiles: 4, btRequestInterval: 1.875
+    [2026-08-12 10:37:23][DEBUG][root](Thread-2 (__run)) : attempt: 1/2, number of mobiles: 3, btRequestInterval: 2.5
+
+Si vous avez beaucoup de messages (Arret de l'antenne local suite a un probleme reporte par l'antenne) reportee dans le log ou la fenetre de message, pensez a ajuster les intervalles de temps (present et absent).
+
+### Meilleure gestion des erreurs du driver bluetooth
+
+Dans les precedentes versions, quand le driver bluetooth etait en erreur, avec dans dmesg ou la console ce genre de messages:
+
+    [154746.077162] Bluetooth: hci0: Controller not accepting commands anymore: ncmd = 0
+    [154746.077930] Bluetooth: hci0: Injecting HCI hardware error event
+    [154746.152527] Bluetooth: hci0: hardware error 0x00
+
+Le probleme n'etait pas fixe sur l'antenne, mais l'antenne notifie jeedom du probleme (alive=0) dans les logs et les messages jeedom. Jeedom se chargeait d'arreter l'antenne, et si le redemarrage automatique etait active, alors, l'antenne etait egalement redemarree par jeedom.
+
+Dans cette version 4.0, en cas de detection de probleme, l'antenne essaye d'abord de faire un "soft reset" du driver bluetooth. Si le probleme persiste, un "hard reset" est execute. Enfin, si le probleme n'est toujours pas resolu, alors, l'antenne notifie le probleme a jeedom, et on suit le meme processus que precedemment.
+
+* soft reset: on reinitialise le driver bluetooth (hciconfig xxx reset)
+* hard reset: on arrete le service bluetooth, on met l'interface xxx DOWN, on supprime le driver bluetooth du kernel, on reinstalle le driver bluetooth dans le kernel, on passe l'interface xxx UP, et on redemarre le service bluetooth (ouf!).
+
 ## 2024-12-26 v3.0.0
 
 Changements pour être compatible avec Debian 12.
@@ -113,6 +177,6 @@ J’espère avoir fixe les problèmes remontés récréments dans le forum, sino
 
 Version stable du plugin, avec une unique antenne gérée sur le serveur Jeedom.
 
-# Documentation
+## Documentation
 
 [Documentation]({{site.baseurl}}/)

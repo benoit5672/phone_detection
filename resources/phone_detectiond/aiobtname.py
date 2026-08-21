@@ -27,7 +27,8 @@
 # Modified by Benoit Rech, to add Cancel request, and sleep between each request sent.
 # add rename default_process to processResponse, and add processTimeout.
 
-import socket, asyncio, time
+import socket
+import asyncio
 from struct import pack, unpack
 
 
@@ -91,11 +92,12 @@ class BTNameRequester(asyncio.Protocol):
     def connection_lost(self, exc):
         super().connection_lost(exc)
 
-    def request(self, mac_addr):
-        """Send Name request, mac_addr is a list of mac addresses"""
-        for addr in mac_addr:
-            time.sleep(0.050)
-            self.send_name_request(addr)
+    async def request(self, macList, btRequestInterval):
+        """Send Name request, macList is a list of mac addresses"""
+        interval = float(max(0.250, btRequestInterval))
+        for mac in tuple(macList):
+            await asyncio.sleep(interval)
+            self.send_name_request(mac)
 
     def send_name_request(self,mac_addr):
         '''Sending ARP request for given IP'''
@@ -122,7 +124,9 @@ class BTNameRequester(asyncio.Protocol):
         resu=unpack("ssss",packet[:4])
         if resu[0]==b'\x04' and resu[1]==b'\x07': # Basically, an answer for our request
             raw_mac = packet[4:10]
-            mac = ':'.join(a + b for a, b in list(zip(*[iter(raw_mac.hex())]*2))[::-1])
+            #mac = ':'.join(a + b for a, b in list(zip(*[iter(raw_mac.hex())]*2))[::-1])
+            mac = ':'.join(raw_mac[::-1].hex()[i:i + 2].upper() for i in range(0, 12, 2))
+
             if resu[3]==b'\x00': #Essentially a successful answer
                 name=packet[10:].strip(b'\x00').decode()
                 self.processResponse({"mac":mac,"name":name})

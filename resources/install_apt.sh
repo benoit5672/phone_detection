@@ -15,6 +15,7 @@ echo 60 > ${PROGRESS_FILE}
 sudo apt-get install -y python3 bluez bluez-hcidump python3-pip --reinstall
 echo 80 > ${PROGRESS_FILE}
 sudo pip3 install requests  --break-system-packages
+sudo apt-get install -y python3-paho-mqtt --reinstall
 echo 90 > ${PROGRESS_FILE}
 sudo rfkill unblock 0 >/dev/null 2>&1
 sudo rfkill unblock 1 >/dev/null 2>&1
