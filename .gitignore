@@ -132,3 +132,5 @@ dmypy.json
 .pyre/
 
 
+resources/.DS_Store
+.DS_Store

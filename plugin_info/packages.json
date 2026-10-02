@@ -1,5 +1,21 @@
 {
   "composer": {
        "plugins/phone_detection"  : {}
-  }
+  },
+  "pre-install": {},
+  "apt": {
+      "bluetooth": {},
+      "rfkill": {},
+      "bluez": {},
+      "python3": {},
+      "python3-pip": {},
+      "python3-venv": {}
+  },
+  "pip3": {
+      "requests": {},
+      "paho-mqtt": {}
+  },
+  "post-install": {
+      "script": "plugins/phone_detection/resources/post-install.sh"
+  }  
 }

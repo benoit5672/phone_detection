@@ -42,8 +42,6 @@ function phone_detection_update() {
         message::add('phone_detection','Pensez a mettre a jour vos antennes et relancer leurs dépendances si besoin ...');
     }
 
-    phone_detection::dependancy_install();
-
     phone_detection::macAddressToUpperCase();
 
     message::removeAll('Phone_detection');

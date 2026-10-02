@@ -7,7 +7,7 @@
   "category": "security",
   "hasDependency": true,
   "hasOwnDeamon": true,
-  "maxDependancyInstallTime": 0,
+  "maxDependancyInstallTime": 15,
   "documentation": "https://github.com/sebmafate/phone_detection/blob/master/README.md",
   "changelog": "https://github.com/sebmafate/phone_detection/blob/master/changelog.md",
   "description": "Ping à intervals réguliers un téléphone pour en déterminer sa présence",

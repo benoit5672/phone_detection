@@ -366,7 +366,7 @@ class phone_detection extends eqLogic
         exec('tar -zcvf /tmp/folder-phone_detection.tar.gz ' . $script_path);
         log::add('phone_detection','info','Envoie du fichier  /tmp/folder-phone_detection.tar.gz');
         $result = false;
-        $result = $remoteObject->execCmd(['sudo rm -Rf /home/'.$user.'/phone_detectiond','mkdir -p /home/'.$user.'/phone_detectiond']);
+        $result = $remoteObject->execCmd(['sudo rm -Rf /home/'.$user.'/phone_detectiond/resources','mkdir -p /home/'.$user.'/phone_detectiond']);
         if ($remoteObject->sendFiles('/tmp/folder-phone_detection.tar.gz','/home/'.$user.'/folder-phone_detection.tar.gz')) {
             log::add('phone_detection','info',__('Décompression du dossier distant',__FILE__));
             $result = $remoteObject->execCmd(['tar -zxf /home/'.$user.'/folder-phone_detection.tar.gz -C /home/'.$user.'/phone_detectiond','rm -f /home/'.$user.'/folder-phone_detection.tar.gz']);
@@ -413,8 +413,14 @@ class phone_detection extends eqLogic
             return true;
         }
         $user = $remoteObject->getConfiguration('remoteUser');
+        $env_path = '/home/' . $user . '/phone_detectiond/venv';
+
         log::add('phone_detection','info',__('Installation des dépendances sur ' . $remoteObject->getRemoteName(),__FILE__));
-        return $remoteObject->execCmd(['bash /home/'.$user.'/phone_detectiond/resources/install_apt.sh /tmp/phone_detection_dependancy 2>&1 &']);
+        $cmd  = 'bash /home/' . $user . '/phone_detectiond/resources/install_remote.sh';
+        $cmd .= ' --venv ' . $env_path;
+        $cmd .= ' > /tmp/phone_detection_dependancy 2>&1 &';
+
+        return $remoteObject->execCmd([$cmd]);
     }
 
     /**
@@ -433,14 +439,15 @@ class phone_detection extends eqLogic
         $user   = $remoteObject->getConfiguration('remoteUser');
         $device = $remoteObject->getConfiguration('remoteDevice');
         $ip     = $remoteObject->getConfiguration('remoteIp');
-        $script_path = '/home/'.$user.'/phone_detectiond/resources/phone_detectiond';
+        $script_path = '/home/' . $user . '/phone_detectiond/resources/phone_detectiond';
+        $env_path = '/home/' . $user . '/phone_detectiond/venv/bin/python3';
         $interval = config::byKey('interval', 'phone_detection', phone_detection::DEFAULT_ABSENT_INTERVAL);
         $present_interval = config::byKey('present_interval', 'phone_detection', phone_detection::DEFAULT_PRESENT_INTERVAL);
         $absent_threshold = config::byKey('absent_threshold', 'phone_detection', phone_detection::DEFAULT_ABSENT_THRESHOLD);
 
 
         // Use v3 style commands for compatibility, will upgrade to v4 later
-        $cmd = 'sudo /usr/bin/python3 ' . $script_path . '/phone_detectiond.py';
+        $cmd = 'sudo ' . $env_path . ' '. $script_path . '/phone_detectiond.py';
         $cmd .= ' --loglevel ' . log::convertLogLevel(log::getLogLevel('phone_detection'));
         $cmd .= ' --device ' . $device;
         $cmd .= ' --socketport ' . config::byKey('socketport', 'phone_detection');
@@ -515,24 +522,6 @@ class phone_detection extends eqLogic
     }
 
     /**
-     * Get lib dependancy information.
-     *
-     * @return array Python3 command return.
-     */
-    public static function dependancy_info()
-    {
-        $return = [
-            'state' => 'nok',
-            'log' => 'phone_detection_update',
-            'progress_file' => jeedom::getTmpFolder('phone_detection') . '/dependance'
-        ];
-
-        $return['state'] = 'ok';
-
-        return $return;
-    }
-
-    /**
      * Return information (status) about daemon.
      *
      * @return array Shell command return.
@@ -549,7 +538,7 @@ class phone_detection extends eqLogic
         }
         $pid_file = jeedom::getTmpFolder('phone_detection') . '/phone_detectiond.pid';
         if (file_exists($pid_file)) {
-            if (posix_getsid(trim(file_get_contents($pid_file)))) {
+            if (@posix_getsid(trim(file_get_contents($pid_file)))) {
                 $return['state'] = 'ok';
             } else {
                 shell_exec(system::getCmdSudo() . 'rm -rf ' . $pid_file . ' 2>&1 > /dev/null');
@@ -562,14 +551,6 @@ class phone_detection extends eqLogic
         $present_interval = config::byKey('present_interval', 'phone_detection', phone_detection::DEFAULT_PRESENT_INTERVAL);
         $absent_threshold = config::byKey('absent_threshold', 'phone_detection', phone_detection::DEFAULT_ABSENT_THRESHOLD);
         $port = config::byKey('socketport', 'phone_detection', phone_detection::DEFAULT_TCP_SERVER_PORT);
-
-        if (phone_detection::dependancy_info()['state'] == 'nok') {
-            $cache = cache::byKey('dependancy' . 'phone_detection');
-            $cache->remove();
-            $return['launchable'] = 'nok';
-            $return['launchable_message'] = __('Veuillez (ré-)installer les dépendances', __FILE__);
-            return $return;
-        }
 
         if ($btport == "none" || $btport == "" || empty($btport)) {
             $return['launchable'] = 'nok';
@@ -635,7 +616,7 @@ class phone_detection extends eqLogic
         $callback = network::getNetworkAccess('internal', 'proto:127.0.0.1:port:comp') . '/plugins/phone_detection/core/php/phone_detection.php';
     
         // Use v3 style commands for compatibility, will upgrade to v4 later
-        $cmd = 'sudo /usr/bin/python3 ' . $deamon_path . '/phone_detectiond/phone_detectiond.py ';
+        $cmd = 'sudo ' . system::getCmdPython3(__CLASS__) . $deamon_path . '/phone_detectiond/phone_detectiond.py ';
         $cmd .= ' --device ' . $btport;
         $cmd .= ' --loglevel ' . log::convertLogLevel(log::getLogLevel('phone_detection'));
         $cmd .= ' --apikey ' . jeedom::getApiKey('phone_detection');
@@ -665,7 +646,7 @@ class phone_detection extends eqLogic
         log::add('phone_detection', 'info', 'Lancement démon phone_detection : ' . $cmd);
         exec($cmd . ' >> ' . log::getPathToLog('phone_detection') . ' 2>&1 &');
         $i = 0;
-        while ($i < 5) {
+        while ($i < 20) {
             $deamon_info = self::deamon_info();
             if ($deamon_info['state'] == 'ok') {
                 break;
@@ -674,10 +655,12 @@ class phone_detection extends eqLogic
             $i++;
         }
 
-        if ($i >= 5) {
-            log::add('phone_detection', 'error', __('Impossible de lancer le démon phone_detection, relancer le démon en debug et vérifiez la log', 'unableStartaemon', __FILE__));
+        if ($i >= 20) {
+            log::add('phone_detection', 'error', __('Impossible de lancer le démon phone_detection, relancer le démon en debug et vérifiez la log', 'unableStartaemon', __FILE__), 'unableStartDeamon');
             return false;
         }
+        message::removeAll('phone_detection', 'unableStartDeamon');
+        return true;
 
 
         // demarrage des demons distants
@@ -996,26 +979,14 @@ class phone_detection extends eqLogic
             $i++;
         }
         if ($i >= 5) {
-            log::add('phone_detection', 'error', __('Impossible d\'arrêter le démon phone_detection, tuons-le', __FILE__));
+            log::add('phone_detection', 'error', __('Impossible d\'arrêter le démon phone_detection, tuons-le', __FILE__), 'unableStopDeamon');
             system::kill('phone_detectiond.py');
+            return false;
         }
+        message::removeAll('phone_detection', 'unableStopDeamon');
+        return true;
     }
 
-
-
-    /**
-     * Install dependancies.
-     *
-     * @return array Shell script command return.
-     */
-    public static function dependancy_install()
-    {
-        log::remove(__CLASS__ . '_update');
-        return [
-            'script' => dirname(__FILE__) . '/../../resources/install_#stype#.sh ' . jeedom::getTmpFolder('phone_detection') . '/dependance',
-            'log' => log::getPathToLog(__CLASS__ . '_update')
-        ];
-    }
 
     public function postInsert() {
         log::add('phone_detection', 'debug', 'postInsert()');
