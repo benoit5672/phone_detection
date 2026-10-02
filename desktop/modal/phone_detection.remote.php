@@ -181,7 +181,8 @@ foreach ($remotes as $remote) {
 	$('.PhoneDetectionRemoteAction[data-action=add]').on('click',function(){
 		$('.PhoneDetectionRemote').show();
 		$('.remoteThumbnailDisplay').hide();
-		$('.PhoneDetectionRemoteAttr').value('');
+		$('.PhoneDetectionRemoteAttr').val('');
+		toggleRemoteFields();
 	});
 
 	$('.eqLogicDisplayCard').on('click',function(){
@@ -209,9 +210,9 @@ foreach ($remotes as $remote) {
 				}
 				$('.PhoneDetectionRemote').show();
 				$('.remoteThumbnailDisplay').hide();
-				$('.PhoneDetectionRemoteAttr').value('');
+				$('.PhoneDetectionRemoteAttr').val('');
 				$('.PhoneDetectionRemote').setValues(data.result,'.PhoneDetectionRemoteAttr');
-				setTimeout(function() { refreshDaemonMode(); }, 200);
+				setTimeout(function() { refreshDaemonMode(); toggleRemoteFields() }, 200);
 			}
 		});
 	}
@@ -489,24 +490,27 @@ window.setInterval(function () {
     displayPhoneDetectionRemoteComm($('.li_PhoneDetectionRemote.active').attr('data-PhoneDetectionRemote_id'));
 }, 5000);
 
-function toggleRemoteFields() {
-    var ip = $('.PhoneDetectionRemoteAttr[data-l2key="remoteIp"]').value();
-    // isRemoteManaged doit être défini globalement ou passé via data.result
-    var showFields = (ip !== '');
-
-    if (showFields) {
-        $('#remoteExtraFields').show();
-        $('#remoteDeviceField').show();
-        $('#remoteActionButtons').show();
-    } else {
-        $('#remoteExtraFields').hide();
-        $('#remoteDeviceField').hide();
-        $('#remoteActionButtons').hide();
-    }
-}
-
 setTimeout(function() {
     refreshDaemonMode();
     toggleRemoteFields();
 }, 200);
+
+function toggleRemoteFields() {
+    var ip = $('.PhoneDetectionRemoteAttr[data-l2key="remoteIp"]').val() || '';
+    var showFields = ip.trim() !== '';
+
+    $('#remoteExtraFields').toggle(showFields);
+    $('#remoteDeviceField').toggle(showFields);
+    $('#remoteActionButtons').toggle(showFields);
+}
+
+$(document).on(
+    'input change',
+    '.PhoneDetectionRemoteAttr[data-l2key="remoteIp"]',
+    function () {
+        toggleRemoteFields();
+    }
+);
+
+toggleRemoteFields();
 </script>

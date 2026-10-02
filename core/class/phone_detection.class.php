@@ -363,7 +363,7 @@ class phone_detection extends eqLogic
         $user=$remoteObject->getConfiguration('remoteUser');
         $script_path = dirname(__FILE__) . '/../../resources/';
         log::add('phone_detection','info','Compression du dossier local');
-        exec('tar -zcvf /tmp/folder-phone_detection.tar.gz ' . $script_path);
+        exec('tar -zcvf /tmp/folder-phone_detection.tar.gz --exclude python_venv ' . $script_path);
         log::add('phone_detection','info','Envoie du fichier  /tmp/folder-phone_detection.tar.gz');
         $result = false;
         $result = $remoteObject->execCmd(['sudo rm -Rf /home/'.$user.'/phone_detectiond/resources','mkdir -p /home/'.$user.'/phone_detectiond']);
@@ -413,10 +413,10 @@ class phone_detection extends eqLogic
             return true;
         }
         $user = $remoteObject->getConfiguration('remoteUser');
-        $env_path = '/home/' . $user . '/phone_detectiond/venv';
+        $env_path = '/home/' . $user . '/phone_detectiond/python_venv';
 
         log::add('phone_detection','info',__('Installation des dépendances sur ' . $remoteObject->getRemoteName(),__FILE__));
-        $cmd  = 'bash /home/' . $user . '/phone_detectiond/resources/install_remote.sh';
+        $cmd  = '/home/' . $user . '/phone_detectiond/resources/install-remote.sh';
         $cmd .= ' --venv ' . $env_path;
         $cmd .= ' > /tmp/phone_detection_dependancy 2>&1 &';
 
@@ -440,7 +440,7 @@ class phone_detection extends eqLogic
         $device = $remoteObject->getConfiguration('remoteDevice');
         $ip     = $remoteObject->getConfiguration('remoteIp');
         $script_path = '/home/' . $user . '/phone_detectiond/resources/phone_detectiond';
-        $env_path = '/home/' . $user . '/phone_detectiond/venv/bin/python3';
+        $env_path = '/home/' . $user . '/phone_detectiond/python_venv/bin/python3';
         $interval = config::byKey('interval', 'phone_detection', phone_detection::DEFAULT_ABSENT_INTERVAL);
         $present_interval = config::byKey('present_interval', 'phone_detection', phone_detection::DEFAULT_PRESENT_INTERVAL);
         $absent_threshold = config::byKey('absent_threshold', 'phone_detection', phone_detection::DEFAULT_ABSENT_THRESHOLD);
@@ -892,6 +892,12 @@ class phone_detection extends eqLogic
             }
         }
     }
+
+    public static function backupExclude() {
+		return [
+			'resources/python_venv'
+		];
+	}    
 
     /**
      * @param string $query: the command to execute on the remote host

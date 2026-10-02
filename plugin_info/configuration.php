@@ -14,7 +14,6 @@ function getBTControllers()
     $result = shell_exec("hcitool dev | grep hci | awk -F ' ' '{ print $1,$2 }'");
     return explode("\n", $result);
 }
-
 ?>
 
 
