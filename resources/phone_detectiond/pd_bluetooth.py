@@ -72,7 +72,7 @@ class BluetoothController:
 
     def __getDebianMajorVersion(self):
         osr = self.__readOsRelease()
-        if osr.get("ID", "").lower() == "debian":
+        if osr.get("ID", "").lower() == "debian" or osr.get("ID_LIKE", "").lower() == "debian":
             versionId = osr.get("VERSION_ID", "")
             if versionId:
                 try:
@@ -97,7 +97,7 @@ class BluetoothController:
         if debianMajor == 12:
             return "legacy12"
         if debianMajor is not None and debianMajor >= 13:
-            return "python13"
+            return "debian13"
         return "legacy12"
 
 
@@ -253,7 +253,7 @@ class BluetoothController:
             if self.__setBluetoothPageTimeoutLegacy() == -1:
                 return False
 
-        elif btMode == "python13":
+        elif btMode == "debian13":
             if not self.__isHciInterfacePresent():
                 logging.critical('No Bluetooth controller found as {}.'.format(self.adapter))
                 return False
