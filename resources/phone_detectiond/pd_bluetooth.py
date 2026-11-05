@@ -143,7 +143,7 @@ class BluetoothController:
 
             devNum = struct.unpack_from("H", buf, 0)[0]
             adapters = []
-            offset = 2
+            offset = 4
             for _ in range(devNum):
                 devId, devOpt = struct.unpack_from("HI", buf, offset)
                 adapters.append(devId)
