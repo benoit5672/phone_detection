@@ -104,7 +104,7 @@ log "Application files will be owned by: ${INSTALL_USER}:${INSTALL_GROUP}"
 # shellcheck disable=SC1091
 source /etc/os-release
 
-[[ "${ID:-}" == "debian" ]] || die "This script supports Debian only."
+[[ "${ID:-}" == "debian" || "${ID:-}" == "raspbian" ]] || die "This script supports Debian and Raspbian only."
 
 if [[ -n "${VERSION_ID:-}" ]]; then
     debian_major="${VERSION_ID%%.*}"
